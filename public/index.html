@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">ConsultaMed <span>1.8</span></div>
+    <div class="brand">ConsultaMed <span>1.9</span></div>
     <button id="configBtn" class="icon-btn" type="button" aria-label="Configurações" aria-pressed="true">⚙</button>
   </header>
 
@@ -21,6 +21,11 @@
 
       <label for="baseCode">Código</label>
       <input id="baseCode" type="password" inputmode="numeric" autocomplete="off" placeholder="Código de acesso">
+
+      <label class="check-row">
+        <input id="onlyStock" type="checkbox">
+        <span>Somente em estoque</span>
+      </label>
 
       <div class="row">
         <button id="saveConnection" class="primary" type="button">Usar BASE</button>
@@ -43,11 +48,6 @@
           <button id="cancelSearch" class="cancel-search hidden" type="button" aria-label="Cancelar pesquisa">✕</button>
         </div>
       </div>
-
-      <label class="check-row">
-        <input id="onlyStock" type="checkbox">
-        <span>Somente em estoque</span>
-      </label>
 
       <div id="status" class="status"></div>
       <div id="searchLoader" class="search-loader hidden" aria-hidden="true">
