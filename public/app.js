@@ -4,6 +4,7 @@ const configPanel = $('configPanel');
 const searchPanel = $('searchPanel');
 const baseUrl = $('baseUrl');
 const baseCode = $('baseCode');
+const baseUrlLabel = document.querySelector('label[for="baseUrl"]');
 const query = $('query');
 const onlyStock = $('onlyStock');
 const statusEl = $('status');
@@ -23,10 +24,22 @@ let usingStock = false;
 let detailsRequestToken = 0;
 let searchController = null;
 let searchSequence = 0;
+let sessionBaseUrl = sessionStorage.getItem('consultamed.baseUrl') || '';
+let connectionCode = '';
 
-baseUrl.value = localStorage.getItem('consultamed.baseUrl') || '';
-baseCode.value = sessionStorage.getItem('consultamed.baseCode') || '';
+localStorage.removeItem('consultamed.baseUrl');
+sessionStorage.removeItem('consultamed.baseCode');
+baseUrl.value = '';
+baseCode.value = '';
 onlyStock.disabled = true;
+
+function syncConnectionFields() {
+  const hasSessionUrl = Boolean(sessionBaseUrl);
+  baseUrlLabel?.classList.toggle('hidden', hasSessionUrl);
+  baseUrl.classList.toggle('hidden', hasSessionUrl);
+  baseUrl.value = '';
+  baseCode.value = '';
+}
 
 function setStatus(text = '', error = false) {
   statusEl.textContent = text;
@@ -54,6 +67,7 @@ function showSearch({focus = true} = {}) {
 }
 
 function showConfig() {
+  syncConnectionFields();
   searchPanel.classList.add('hidden');
   configPanel.classList.remove('hidden');
   $('configBtn').setAttribute('aria-pressed', 'true');
@@ -68,7 +82,7 @@ function toggleConfig() {
 }
 
 function esc(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  return String(value ?? '').replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt',"'":'&#39;','"':'&quot;'}[c]));
 }
 
 function stockLine(record) {
@@ -251,8 +265,8 @@ async function runSearch(term, {formula = '', mode = 'base'} = {}) {
       term: cleanTerm,
       formula: String(formula || '').trim(),
       mode,
-      baseUrl: usingStock ? baseUrl.value.trim() : '',
-      baseCode: usingStock ? baseCode.value.trim() : ''
+      baseUrl: usingStock ? sessionBaseUrl : '',
+      baseCode: usingStock ? connectionCode : ''
     };
 
     const endpoint = mode === 'others' ? '/api/search' : '/api/base-search';
@@ -317,21 +331,37 @@ function searchByFormula(active) {
 }
 
 $('saveConnection').addEventListener('click', () => {
-  const url = baseUrl.value.trim();
+  const enteredUrl = baseUrl.value.trim();
+  const url = sessionBaseUrl || enteredUrl;
   const code = baseCode.value.trim();
-  if (!url || !code) {
-    alert('Informe a URL e o código da BASE.');
+
+  if (!url) {
+    alert('Informe a URL da BASE.');
     return;
   }
-  localStorage.setItem('consultamed.baseUrl', url);
-  sessionStorage.setItem('consultamed.baseCode', code);
+  if (!code) {
+    alert('Informe o código da BASE.');
+    return;
+  }
+
+  if (!sessionBaseUrl) {
+    sessionBaseUrl = url;
+    sessionStorage.setItem('consultamed.baseUrl', url);
+  }
+
+  connectionCode = code;
+  baseUrl.value = '';
+  baseCode.value = '';
   usingStock = true;
   onlyStock.disabled = false;
+  syncConnectionFields();
   showSearch();
 });
 
 $('skipConnection').addEventListener('click', () => {
   usingStock = false;
+  connectionCode = '';
+  baseCode.value = '';
   onlyStock.checked = false;
   onlyStock.disabled = true;
   showSearch();
@@ -355,8 +385,4 @@ detailsDialog.addEventListener('click', (event) => {
   if (event.target === detailsDialog) detailsDialog.close();
 });
 
-if (baseUrl.value && baseCode.value) {
-  usingStock = true;
-  onlyStock.disabled = false;
-  showSearch({focus: false});
-}
+syncConnectionFields();
