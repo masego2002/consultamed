@@ -2,8 +2,8 @@ const $ = (id) => document.getElementById(id);
 
 const configPanel = $('configPanel');
 const searchPanel = $('searchPanel');
-const mbileUrl = $('mbileUrl');
-const mbileCode = $('mbileCode');
+const baseUrl = $('baseUrl');
+const baseCode = $('baseCode');
 const query = $('query');
 const onlyStock = $('onlyStock');
 const statusEl = $('status');
@@ -21,8 +21,8 @@ let detailsRequestToken = 0;
 let searchController = null;
 let searchSequence = 0;
 
-mbileUrl.value = localStorage.getItem('consultamed.mbileUrl') || '';
-mbileCode.value = sessionStorage.getItem('consultamed.mbileCode') || '';
+baseUrl.value = localStorage.getItem('consultamed.baseUrl') || '';
+baseCode.value = sessionStorage.getItem('consultamed.baseCode') || '';
 onlyStock.disabled = true;
 
 function setStatus(text = '', error = false) {
@@ -242,8 +242,8 @@ async function runSearch(term, {formula = ''} = {}) {
     const payload = {
       term: cleanTerm,
       formula: String(formula || '').trim(),
-      mbileUrl: usingStock ? mbileUrl.value.trim() : '',
-      mbileCode: usingStock ? mbileCode.value.trim() : ''
+      baseUrl: usingStock ? baseUrl.value.trim() : '',
+      baseCode: usingStock ? baseCode.value.trim() : ''
     };
 
     const response = await fetch('/api/search', {
@@ -303,14 +303,14 @@ function searchByFormula(active) {
 }
 
 $('saveConnection').addEventListener('click', () => {
-  const url = mbileUrl.value.trim();
-  const code = mbileCode.value.trim();
+  const url = baseUrl.value.trim();
+  const code = baseCode.value.trim();
   if (!url || !code) {
-    alert('Informe a URL e o código do MBILE.');
+    alert('Informe a URL e o código da BASE.');
     return;
   }
-  localStorage.setItem('consultamed.mbileUrl', url);
-  sessionStorage.setItem('consultamed.mbileCode', code);
+  localStorage.setItem('consultamed.baseUrl', url);
+  sessionStorage.setItem('consultamed.baseCode', code);
   usingStock = true;
   onlyStock.disabled = false;
   showSearch();
@@ -340,7 +340,7 @@ detailsDialog.addEventListener('click', (event) => {
   if (event.target === detailsDialog) detailsDialog.close();
 });
 
-if (mbileUrl.value && mbileCode.value) {
+if (baseUrl.value && baseCode.value) {
   usingStock = true;
   onlyStock.disabled = false;
   showSearch({focus: false});
