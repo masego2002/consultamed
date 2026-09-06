@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '1.6';
+const APP_VERSION = '2.2';
 const MAX_CR_BYTES = 12_000_000;
 
 export async function onRequestPost(context) {
@@ -21,8 +21,17 @@ export async function onRequestPost(context) {
     const rows = baseResult.value;
     const crRecords = crResult.status === 'fulfilled' ? crResult.value : [];
     const records = rows.map((row) => {
-      const cr = bestCRMatch(row, crRecords);
-      if (cr) return {...cr, stock: row};
+      const key = relationKey(row);
+      const trusted = trustedCRMatch(row, crRecords);
+      if (trusted) {
+        return {
+          ...trusted,
+          stock: row,
+          relationKey: key,
+          relationCandidates: []
+        };
+      }
+
       return {
         source: 'BASE',
         name: row.name,
@@ -33,8 +42,10 @@ export async function onRequestPost(context) {
         base_name: row.name,
         kind: '',
         image: '',
-        url: `${CR}/busca?termo=${encodeURIComponent(row.name)}`,
-        stock: row
+        url: '',
+        stock: row,
+        relationKey: key,
+        relationCandidates: candidateCRMatches(row, crRecords)
       };
     });
 
@@ -172,38 +183,61 @@ function parseCR(html) {
   return [...unique.values()];
 }
 
-function bestCRMatch(row, records) {
+function relationKey(row) {
+  if (row.id) return `id:${row.id}`;
+  if (row.ean) return `ean:${row.ean}`;
+  return `name:${norm(row.name)}`;
+}
+
+function trustedCRMatch(row, records) {
   if (row.ean) {
-    const exact = records.find((record) => record.ean && record.ean === row.ean);
-    if (exact) return exact;
+    const exactEan = records.find((record) => record.ean && record.ean === row.ean);
+    if (exactEan) return exactEan;
   }
 
   const rowName = norm(row.name);
+  if (!rowName) return null;
+  return records.find((record) => norm(record.name) === rowName) || null;
+}
+
+function candidateCRMatches(row, records) {
+  const rowName = norm(row.name);
+  if (!rowName) return [];
   const rowTokens = new Set(rowName.split(' ').filter(Boolean));
-  let best = null;
-  let bestScore = 0;
+  const scored = [];
 
   for (const record of records) {
     const recordName = norm(record.name);
-    if (!recordName) continue;
-    const numericTokens = recordName.split(' ').filter((token) => /\d/.test(token));
-    if (numericTokens.length && !numericTokens.every((token) => rowName.includes(token))) continue;
-
-    let score = 0;
-    if (recordName === rowName) score += 200;
-    const base = norm(record.base_name || record.family?.replaceAll('-', ' ') || '');
-    if (base && (rowName.startsWith(base) || matches(base, rowName))) score += 50;
+    if (!recordName || recordName === rowName) continue;
 
     const recordTokens = new Set(recordName.split(' ').filter(Boolean));
-    for (const token of recordTokens) if (rowTokens.has(token)) score += 4;
+    let overlap = 0;
+    for (const token of recordTokens) if (rowTokens.has(token)) overlap += 1;
 
-    if (score > bestScore) {
-      bestScore = score;
-      best = record;
-    }
+    const base = norm(record.base_name || record.family?.replaceAll('-', ' ') || '');
+    let score = overlap * 4;
+    if (base && rowName.startsWith(base)) score += 18;
+    if (base && matches(base, rowName)) score += 10;
+    if (rowName.startsWith(recordName.split(' ')[0])) score += 8;
+    if (record.ean && row.ean && record.ean === row.ean) score += 200;
+
+    if (score < 8) continue;
+    scored.push({score, record});
   }
 
-  return bestScore >= 12 ? best : null;
+  scored.sort((a, b) => b.score - a.score || norm(a.record.name).localeCompare(norm(b.record.name), 'pt-BR'));
+  return scored.slice(0, 8).map(({record}) => ({
+    source: 'CR',
+    url: record.url,
+    name: record.name,
+    active: record.active,
+    brand: record.brand,
+    ean: record.ean,
+    family: record.family,
+    base_name: record.base_name,
+    kind: record.kind,
+    image: record.image
+  }));
 }
 
 async function safeFetch(input, init = {}, follow = true) {
