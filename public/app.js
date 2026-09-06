@@ -10,9 +10,12 @@ const statusEl = $('status');
 const resultsEl = $('results');
 const detailsDialog = $('detailsDialog');
 const searchBtn = $('searchBtn');
+const otherSearchBtn = $('otherSearchBtn');
 const cancelSearchBtn = $('cancelSearch');
 const searchBtnText = $('searchBtnText');
 const searchBtnSpinner = $('searchBtnSpinner');
+const otherSearchBtnText = $('otherSearchBtnText');
+const otherSearchBtnSpinner = $('otherSearchBtnSpinner');
 const searchLoader = $('searchLoader');
 
 let lastRecords = [];
@@ -30,12 +33,17 @@ function setStatus(text = '', error = false) {
   statusEl.classList.toggle('error', error);
 }
 
-function setSearching(searching) {
-  searchBtnText.textContent = searching ? 'Pesquisando..' : 'Pesquisar';
-  searchBtnSpinner.classList.toggle('hidden', !searching);
+function setSearching(searching, mode = 'base') {
+  const baseSearching = searching && mode === 'base';
+  const othersSearching = searching && mode === 'others';
+  searchBtnText.textContent = baseSearching ? 'Pesquisando..' : 'Pesquisar';
+  otherSearchBtnText.textContent = othersSearching ? 'Pesquisando..' : 'Outros';
+  searchBtnSpinner.classList.toggle('hidden', !baseSearching);
+  otherSearchBtnSpinner.classList.toggle('hidden', !othersSearching);
   cancelSearchBtn.classList.toggle('hidden', !searching);
   searchLoader.classList.toggle('hidden', !searching);
-  searchBtn.setAttribute('aria-busy', searching ? 'true' : 'false');
+  searchBtn.setAttribute('aria-busy', baseSearching ? 'true' : 'false');
+  otherSearchBtn.setAttribute('aria-busy', othersSearching ? 'true' : 'false');
 }
 
 function showSearch({focus = true} = {}) {
@@ -222,7 +230,7 @@ async function loadRemoteDetails(record, token, localItems) {
   }
 }
 
-async function runSearch(term, {formula = ''} = {}) {
+async function runSearch(term, {formula = '', mode = 'base'} = {}) {
   const cleanTerm = String(term || '').trim();
   if (cleanTerm.length < 2) {
     setStatus('Digite pelo menos 2 caracteres.', true);
@@ -236,17 +244,19 @@ async function runSearch(term, {formula = ''} = {}) {
 
   setStatus('');
   resultsEl.innerHTML = '';
-  setSearching(true);
+  setSearching(true, mode);
 
   try {
     const payload = {
       term: cleanTerm,
       formula: String(formula || '').trim(),
+      mode,
       baseUrl: usingStock ? baseUrl.value.trim() : '',
       baseCode: usingStock ? baseCode.value.trim() : ''
     };
 
-    const response = await fetch('/api/search', {
+    const endpoint = mode === 'others' ? '/api/search' : '/api/base-search';
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {'content-type': 'application/json'},
       body: JSON.stringify(payload),
@@ -290,7 +300,11 @@ function cancelSearch() {
 }
 
 function doSearch() {
-  runSearch(query.value);
+  runSearch(query.value, {mode: 'base'});
+}
+
+function doOtherSearch() {
+  runSearch(query.value, {mode: 'others'});
 }
 
 function searchByFormula(active) {
@@ -299,7 +313,7 @@ function searchByFormula(active) {
   if (detailsDialog.open) detailsDialog.close();
   showSearch({focus: false});
   query.value = formula;
-  runSearch(formula, {formula});
+  runSearch(formula, {formula, mode: 'others'});
 }
 
 $('saveConnection').addEventListener('click', () => {
@@ -325,6 +339,7 @@ $('skipConnection').addEventListener('click', () => {
 
 $('configBtn').addEventListener('click', toggleConfig);
 searchBtn.addEventListener('click', doSearch);
+otherSearchBtn.addEventListener('click', doOtherSearch);
 cancelSearchBtn.addEventListener('click', cancelSearch);
 query.addEventListener('keydown', (event) => { if (event.key === 'Enter') doSearch(); });
 onlyStock.addEventListener('change', () => {
