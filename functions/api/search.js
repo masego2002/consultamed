@@ -1,14 +1,17 @@
 const CR = 'https://consultaremedios.com.br';
+const APP_VERSION = '1.4';
 const MAX_CR_BYTES = 12_000_000;
-const MAX_STOCK_TERMS = 16;
+const MAX_STOCK_TERMS = 48;
+const STOCK_BATCH_SIZE = 4;
 
 export async function onRequestPost(context) {
   try {
     const body = await context.request.json();
-    const term = String(body?.term || '').trim().slice(0, 120);
+    const term = String(body?.term || '').trim().slice(0, 180);
+    const requestedFormula = String(body?.formula || '').trim().slice(0, 280);
     if (term.length < 2) return json({error: 'Pesquisa muito curta.'}, 400);
 
-    const cr = await searchCR(term);
+    const cr = await searchCR(term, requestedFormula);
     let stockRows = [];
     const notes = [...cr.notes];
 
@@ -17,7 +20,7 @@ export async function onRequestPost(context) {
 
     if (mbileUrl && mbileCode) {
       try {
-        stockRows = await searchStock(mbileUrl, mbileCode, term, cr.records);
+        stockRows = await searchStock(mbileUrl, mbileCode, term, cr.records, cr.formulas);
       } catch (error) {
         notes.push('Estoque indisponível: ' + safeMessage(error));
       }
@@ -29,71 +32,186 @@ export async function onRequestPost(context) {
     for (const record of cr.records) {
       const stock = associate(record, stockRows);
       if (stock) usedStock.add(stock.id);
+
       if (isGeneric(record) && (!stock || Number(stock.qty) < 1)) continue;
+
       records.push({...record, stock: stock || null});
     }
 
     if (mbileUrl && mbileCode) {
       for (const row of stockRows) {
         if (usedStock.has(row.id) || Number(row.qty) < 1) continue;
-        const nums = norm(term).split(' ').filter((t) => /\d/.test(t)).join(' ');
-        if (nums && !matches(nums, `${row.name} ${row.ean || ''}`)) continue;
+        if (!isStockRowRelevant(row, term, cr.records, cr.formulas)) continue;
+
+        const formulaHint = cr.formulas.length === 1 ? cr.formulas[0] : '';
         records.push({
           source: 'MBILE',
           name: row.name,
-          active: '',
+          active: formulaHint,
           brand: '',
           ean: row.ean || '',
           family: '',
           base_name: row.name,
           kind: '',
+          image: '',
           url: `${CR}/busca?termo=${encodeURIComponent(row.name)}`,
           stock: row
         });
       }
     }
 
-    records.sort((a, b) => norm(a.name).localeCompare(norm(b.name), 'pt-BR'));
-    return json({records: records.slice(0, 500), notes});
+    const unique = new Map();
+    for (const record of records) {
+      const key = record.ean ? `ean:${record.ean}` : `name:${norm(record.name)}|${norm(record.active)}`;
+      unique.set(key, mergeRecord(unique.get(key), record));
+    }
+
+    const finalRecords = [...unique.values()];
+    finalRecords.sort((a, b) => norm(a.name).localeCompare(norm(b.name), 'pt-BR'));
+    return json({records: finalRecords.slice(0, 500), notes: [...new Set(notes)], formulas: cr.formulas});
   } catch (error) {
     return json({error: safeMessage(error)}, 500);
   }
 }
 
-async function searchCR(term) {
-  const notes = [];
+async function searchCR(term, requestedFormula = '') {
+  const notes = new Set();
   const collected = new Map();
   const paLinks = new Map();
 
-  const tokens = [...new Set(norm(term).split(' '))].filter(Boolean).sort((a, b) => Number(!/^[a-z]+$/.test(a)) - Number(!/^[a-z]+$/.test(b)) || b.length - a.length);
-  const queries = [...new Set([tokens[0] || term, term])].slice(0, 2);
-
-  for (const q of queries) {
+  const collectQuery = async (query) => {
+    const q = String(query || '').trim();
+    if (q.length < 2) return;
     try {
       const html = await fetchText(`${CR}/busca?termo=${encodeURIComponent(q)}`, 'CR');
       const parsed = parseCR(html);
       parsed.records.forEach((r) => collected.set(r.url, mergeRecord(collected.get(r.url), r)));
       parsed.pa.forEach((url, label) => paLinks.set(label, url));
     } catch (_) {
-      notes.push('Consulta Remédios parcialmente indisponível');
+      notes.add('Consulta Remédios parcialmente indisponível');
     }
+  };
+
+  const termTokens = [...new Set(norm(term).split(' '))].filter(Boolean);
+  const alphaTokens = termTokens.filter((t) => /^[a-z]+$/.test(t) && !STOP_TOKENS.has(t));
+  const baseQueries = [...new Set([term, alphaTokens[0] || ''])].filter(Boolean).slice(0, 2);
+  for (const q of baseQueries) await collectQuery(q);
+
+  let formulas = requestedFormula ? [requestedFormula] : inferFormulas(term, [...collected.values()]);
+
+  for (const formula of formulas.slice(0, 3)) {
+    for (const q of formulaQueries(formula)) await collectQuery(q);
   }
 
-  const alphaTerm = norm(term).split(' ').filter((t) => /^[a-z]+$/.test(t) && !['mg','ml','g','mcg','ui','com','caixa','comprimidos'].includes(t)).join(' ');
-  const related = [...paLinks.entries()].filter(([label]) => label && matches(alphaTerm, label)).map(([, url]) => url).slice(0, 3);
+  if (!formulas.length) formulas = inferFormulas(term, [...collected.values()]);
 
-  for (const url of related) {
+  const ingredientTerms = [...new Set(formulas.flatMap(splitFormula).map(norm).filter(Boolean))];
+  const relatedPa = [...paLinks.entries()]
+    .filter(([label]) => ingredientTerms.some((ingredient) => formulaPartRelated(label, ingredient)))
+    .map(([, url]) => url)
+    .filter((url, index, arr) => arr.indexOf(url) === index)
+    .slice(0, 8);
+
+  for (const url of relatedPa) {
     try {
       const html = await fetchText(url, 'CR');
       const parsed = parseCR(html);
       parsed.records.forEach((r) => collected.set(r.url, mergeRecord(collected.get(r.url), r)));
     } catch (_) {
-      notes.push('Marcas relacionadas parcialmente indisponíveis');
+      notes.add('Marcas relacionadas parcialmente indisponíveis');
     }
   }
 
-  const records = [...collected.values()].filter((r) => matches(term, [r.name, r.active, r.brand, r.ean].join(' ')));
-  return {records, notes: [...new Set(notes)]};
+  if (!formulas.length) formulas = inferFormulas(term, [...collected.values()]);
+  formulas = [...new Map(formulas.map((f) => [formulaSignature(f) || norm(f), f])).values()].filter(Boolean).slice(0, 5);
+
+  const records = [...collected.values()].filter((record) => {
+    const direct = matches(term, [record.name, record.active, record.brand, record.ean].join(' '));
+    const sameFormula = formulas.some((formula) => formulaEquivalent(record.active, formula));
+    return direct || sameFormula;
+  });
+
+  return {records, notes: [...notes], formulas};
+}
+
+const STOP_TOKENS = new Set(['mg','ml','g','mcg','ui','com','caixa','comprimido','comprimidos','capsula','capsulas','frasco','blister','blisteres']);
+
+function inferFormulas(term, records) {
+  const ranked = new Map();
+  const normalizedTerm = norm(term);
+
+  for (const record of records) {
+    const active = String(record.active || '').trim();
+    if (!active) continue;
+
+    const brandFields = [record.name, record.brand, record.ean].join(' ');
+    const activeField = record.active || '';
+    let score = 0;
+
+    if (matches(term, brandFields)) score += 50;
+    if (matches(term, activeField)) score += 35;
+    if (norm(record.name).startsWith(normalizedTerm)) score += 12;
+    if (norm(activeField) === normalizedTerm) score += 20;
+    if (!score) continue;
+
+    const key = formulaSignature(active) || norm(active);
+    const current = ranked.get(key) || {formula: active, score: 0, count: 0};
+    current.score += score;
+    current.count += 1;
+    ranked.set(key, current);
+  }
+
+  return [...ranked.values()]
+    .sort((a, b) => (b.score + b.count * 3) - (a.score + a.count * 3))
+    .slice(0, 3)
+    .map((item) => item.formula);
+}
+
+function formulaQueries(formula) {
+  const parts = splitFormula(formula);
+  const queries = [formula, ...parts];
+  for (const part of parts) {
+    const core = ingredientCore(part);
+    if (core && norm(core) !== norm(part)) queries.push(core);
+  }
+  return [...new Set(queries.map((q) => String(q || '').trim()).filter((q) => q.length >= 2))].slice(0, 7);
+}
+
+function splitFormula(value) {
+  return String(value || '')
+    .split(/\s*\+\s*|\s*;\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function ingredientCore(value) {
+  return String(value || '')
+    .replace(/\b(monoi?dratad[oa]|monohidratad[oa]|hidratad[oa]|anidr[oa])\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function canonicalIngredient(value) {
+  return norm(ingredientCore(value));
+}
+
+function formulaSignature(value) {
+  const parts = splitFormula(value).map(canonicalIngredient).filter(Boolean).sort();
+  return parts.join('|');
+}
+
+function formulaEquivalent(a, b) {
+  const sigA = formulaSignature(a);
+  const sigB = formulaSignature(b);
+  if (!sigA || !sigB) return false;
+  return sigA === sigB;
+}
+
+function formulaPartRelated(a, b) {
+  const aa = canonicalIngredient(a);
+  const bb = canonicalIngredient(b);
+  if (!aa || !bb) return false;
+  return aa === bb || aa.includes(bb) || bb.includes(aa);
 }
 
 function parseCR(html) {
@@ -109,6 +227,7 @@ function parseCR(html) {
   for (const m of html.matchAll(/<script\b[^>]*type=["'][^"']*json[^"']*["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     let payload;
     try { payload = JSON.parse(m[1].trim()); } catch { continue; }
+
     for (const obj of walkObjects(payload)) {
       const href = typeof obj.url === 'string' ? cleanCRUrl(obj.url) : '';
       const name = typeof obj.name === 'string' ? obj.name.trim() : '';
@@ -117,7 +236,9 @@ function parseCR(html) {
 
       const props = Array.isArray(obj.additionalProperty) ? obj.additionalProperty : [];
       let active = valueFromProps(props, 'principio ativo');
-      if (!active && Array.isArray(obj.activeIngredient)) active = obj.activeIngredient.map((x) => typeof x === 'object' ? x?.name : '').filter(Boolean).join(' + ');
+      if (!active && Array.isArray(obj.activeIngredient)) {
+        active = obj.activeIngredient.map((x) => typeof x === 'object' ? x?.name : x).filter(Boolean).join(' + ');
+      }
 
       const rawEan = String(obj.gtin13 || obj.gtin || obj.sku || '');
       const ean = /^\d{8,14}$/.test(rawEan) ? rawEan : '';
@@ -130,8 +251,16 @@ function parseCR(html) {
       if (!kind) kind = valueFromProps(props, 'tipo do medicamento');
 
       records.push({
-        source: 'CR', url: href, name, active: String(active || ''), brand: String(brand || ''), ean,
-        family, base_name: String(obj.alternateName || name.split(' ')[0] || family.replaceAll('-', ' ')), kind: String(kind || '')
+        source: 'CR',
+        url: href,
+        name,
+        active: String(active || ''),
+        brand: String(brand || ''),
+        ean,
+        family,
+        base_name: String(obj.alternateName || name.split(' ')[0] || family.replaceAll('-', ' ')),
+        kind: String(kind || ''),
+        image: cleanImageUrl(imageFromObject(obj.image))
       });
     }
   }
@@ -141,27 +270,72 @@ function parseCR(html) {
   return {records: [...unique.values()], pa};
 }
 
-async function searchStock(link, code, term, crRecords) {
+function imageFromObject(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const image = imageFromObject(item);
+      if (image) return image;
+    }
+  }
+  if (value && typeof value === 'object') return value.url || value.contentUrl || value.thumbnailUrl || '';
+  return '';
+}
+
+function cleanImageUrl(value) {
+  try {
+    const url = new URL(String(value || ''), CR);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+async function searchStock(link, code, term, crRecords, formulas = []) {
   const login = await loginMBILE(link, code);
-  const terms = [term];
+  const terms = [];
+  const addTerm = (value) => {
+    const q = String(value || '').trim();
+    if (q.length < 2 || terms.some((x) => norm(x) === norm(q))) return;
+    terms.push(q);
+  };
+
+  addTerm(term);
+  for (const formula of formulas) {
+    addTerm(formula);
+    for (const part of splitFormula(formula)) {
+      addTerm(part);
+      addTerm(ingredientCore(part));
+    }
+  }
   for (const record of crRecords) {
-    const t = String(record.base_name || record.family?.replaceAll('-', ' ') || '').trim();
-    if (t && !terms.some((x) => norm(x) === norm(t))) terms.push(t);
+    addTerm(record.base_name || record.family?.replaceAll('-', ' ') || '');
     if (terms.length >= MAX_STOCK_TERMS) break;
   }
 
   const rows = new Map();
-  for (const q of terms) {
-    const url = `${login.base}/produtos?q=${encodeURIComponent(q)}`;
-    const response = await safeFetch(url, {headers: {'cookie': login.cookie, 'user-agent': 'Mozilla/5.0 ConsultaMed/1.3'}}, true);
-    const html = await response.text();
-    for (const row of parseStock(html)) rows.set(row.id, row);
+  const limited = terms.slice(0, MAX_STOCK_TERMS);
+
+  for (let i = 0; i < limited.length; i += STOCK_BATCH_SIZE) {
+    const batch = limited.slice(i, i + STOCK_BATCH_SIZE);
+    const responses = await Promise.allSettled(batch.map(async (q) => {
+      const url = `${login.base}/produtos?q=${encodeURIComponent(q)}`;
+      const response = await safeFetch(url, {headers: {'cookie': login.cookie, 'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`}}, true);
+      const html = await response.text();
+      return parseStock(html);
+    }));
+
+    for (const result of responses) {
+      if (result.status !== 'fulfilled') continue;
+      for (const row of result.value) rows.set(row.id || `${norm(row.name)}|${row.ean}`, row);
+    }
   }
+
   return [...rows.values()];
 }
 
 async function loginMBILE(link, code) {
-  const initial = await safeFetch(normalizeMBILEUrl(link), {headers: {'user-agent': 'Mozilla/5.0 ConsultaMed/1.3'}}, true);
+  const initial = await safeFetch(normalizeMBILEUrl(link), {headers: {'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`}}, true);
   const initialHtml = await initial.text();
   if (!/name=["']codigo["']/i.test(initialHtml)) throw new Error('Autenticação do MBILE não encontrada.');
 
@@ -175,7 +349,7 @@ async function loginMBILE(link, code) {
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
       'cookie': initialCookie,
-      'user-agent': 'Mozilla/5.0 ConsultaMed/1.3'
+      'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`
     },
     body: new URLSearchParams({codigo: code}).toString()
   }, false);
@@ -183,7 +357,7 @@ async function loginMBILE(link, code) {
   const cookie = mergeCookies(initialCookie, extractCookies(loginResponse.headers));
   if (!cookie) throw new Error('Sessão do MBILE não foi criada.');
 
-  const check = await safeFetch(`${base}/produtos?q=${encodeURIComponent('___verificacao_de_conexao___')}`, {headers: {'cookie': cookie, 'user-agent': 'Mozilla/5.0 ConsultaMed/1.3'}}, true);
+  const check = await safeFetch(`${base}/produtos?q=${encodeURIComponent('___verificacao_de_conexao___')}`, {headers: {'cookie': cookie, 'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`}}, true);
   const checkHtml = await check.text();
   parseStock(checkHtml);
   return {base, cookie};
@@ -213,14 +387,60 @@ function parseStock(html) {
 }
 
 function associate(record, rows) {
-  const eanMatches = record.ean ? rows.filter((r) => r.ean && r.ean === record.ean) : [];
-  if (eanMatches.length === 1) return eanMatches[0];
+  if (!rows.length) return null;
 
-  const key = norm(record.base_name || record.family?.replaceAll('-', ' ') || record.name);
-  if (!key) return null;
-  const dosage = norm(record.name).split(' ').filter((t) => /\d/.test(t));
-  const nameMatches = rows.filter((r) => matches(key, r.name) && dosage.every((t) => norm(r.name).includes(t)));
-  return nameMatches.length === 1 ? nameMatches[0] : null;
+  const eanMatches = record.ean ? rows.filter((r) => r.ean && r.ean === record.ean) : [];
+  if (eanMatches.length) return eanMatches.sort((a, b) => Number(b.qty) - Number(a.qty))[0];
+
+  const recordName = norm(record.name);
+  const base = norm(record.base_name || record.family?.replaceAll('-', ' ') || record.name);
+  if (!base) return null;
+
+  const numericTokens = recordName.split(' ').filter((t) => /\d/.test(t));
+  const recordTokens = new Set(recordName.split(' ').filter(Boolean));
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const row of rows) {
+    const rowName = norm(row.name);
+    if (!rowName) continue;
+    const baseMatches = matches(base, rowName) || matches(rowName.split(' ').slice(0, 2).join(' '), base);
+    if (!baseMatches) continue;
+    if (numericTokens.length && !numericTokens.every((token) => rowName.includes(token))) continue;
+
+    const rowTokens = new Set(rowName.split(' ').filter(Boolean));
+    let overlap = 0;
+    for (const token of recordTokens) if (rowTokens.has(token)) overlap += 1;
+
+    let score = overlap * 4;
+    if (rowName === recordName) score += 120;
+    if (rowName.startsWith(base) || recordName.startsWith(norm(row.name.split(' ')[0]))) score += 25;
+    if (Number(row.qty) >= 1) score += 2;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+
+  return bestScore >= 10 ? best : null;
+}
+
+function isStockRowRelevant(row, term, records, formulas) {
+  const haystack = `${row.name} ${row.ean || ''}`;
+  if (matches(term, haystack)) return true;
+
+  for (const record of records) {
+    const base = record.base_name || record.family?.replaceAll('-', ' ') || '';
+    if (base && matches(base, row.name)) return true;
+  }
+
+  for (const formula of formulas) {
+    for (const part of splitFormula(formula)) {
+      if (matches(ingredientCore(part), row.name)) return true;
+    }
+  }
+  return false;
 }
 
 function isGeneric(record) {
@@ -232,7 +452,7 @@ function isGeneric(record) {
 }
 
 async function fetchText(url, label) {
-  const response = await fetch(url, {headers: {'user-agent': 'Mozilla/5.0 ConsultaMed/1.3', 'accept': 'text/html,application/json'}});
+  const response = await fetch(url, {headers: {'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`, 'accept': 'text/html,application/json'}});
   if (!response.ok) throw new Error(`${label} respondeu ${response.status}.`);
   const text = await response.text();
   if (text.length > MAX_CR_BYTES) throw new Error(`${label}: resposta muito grande.`);
@@ -284,7 +504,9 @@ function cleanCRUrl(value) {
     if (url.protocol !== 'https:' || url.hostname !== 'consultaremedios.com.br') return '';
     url.hash = '';
     return url.toString();
-  } catch { return ''; }
+  } catch {
+    return '';
+  }
 }
 
 function* walkObjects(value) {
@@ -306,7 +528,7 @@ function valueFromProps(props, target) {
 function mergeRecord(oldRecord, nextRecord) {
   if (!oldRecord) return nextRecord;
   const out = {...oldRecord};
-  for (const [key, value] of Object.entries(nextRecord)) if (value) out[key] = value;
+  for (const [key, value] of Object.entries(nextRecord)) if (value !== '' && value !== null && value !== undefined) out[key] = value;
   return out;
 }
 
