@@ -1,4 +1,4 @@
-# ConsultaMed 1.3
+# ConsultaMed 1.5
 
 Versão web do ConsultaMed preparada para Cloudflare Pages.
 
@@ -6,7 +6,7 @@ Versão web do ConsultaMed preparada para Cloudflare Pages.
 
 - `public/` — site que o usuário abre.
 - `functions/` — consultas feitas no servidor da Cloudflare.
-- `functions/api/search.js` — consulta Consulta Remédios e MBILE_REMOTO.
+- `functions/api/search.js` — consulta Consulta Remédios e BASE.
 
 ## Publicar no Cloudflare Pages
 
@@ -18,7 +18,7 @@ Use:
 
 O endereço `*.pages.dev` fica fixo após a criação do projeto.
 
-## MBILE_REMOTO
+## BASE
 
 O link pode continuar sendo `*.trycloudflare.com` e mudar quando necessário. A URL é informada na tela do ConsultaMed.
 
