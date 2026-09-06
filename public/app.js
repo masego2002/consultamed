@@ -371,7 +371,18 @@ $('configBtn').addEventListener('click', toggleConfig);
 searchBtn.addEventListener('click', doSearch);
 otherSearchBtn.addEventListener('click', doOtherSearch);
 cancelSearchBtn.addEventListener('click', cancelSearch);
-query.addEventListener('keydown', (event) => { if (event.key === 'Enter') doSearch(); });
+query.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  searchBtn.click();
+});
+[baseUrl, baseCode].forEach((field) => {
+  field.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    $('saveConnection').click();
+  });
+});
 onlyStock.addEventListener('change', () => {
   render(lastRecords);
   if (lastRecords.length) {
