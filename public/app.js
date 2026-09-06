@@ -22,6 +22,9 @@ const otherSearchBtnSpinner = $('otherSearchBtnSpinner');
 const searchLoader = $('searchLoader');
 const updateRelationsBtn = $('updateRelations');
 
+const MANUAL_RELATIONS_KEY = 'consultamed.manualRelations.2.3';
+const PENDING_RELATIONS_KEY = 'consultamed.pendingRelations.2.3';
+
 let lastRawRecords = [];
 let lastRecords = [];
 let usingStock = false;
@@ -30,10 +33,12 @@ let searchController = null;
 let searchSequence = 0;
 let sessionBaseUrl = sessionStorage.getItem('consultamed.baseUrl') || '';
 let connectionCode = '';
-let manualRelations = readLocalObject('consultamed.manualRelations');
-let pendingRelations = readLocalObject('consultamed.pendingRelations');
+let manualRelations = readLocalObject(MANUAL_RELATIONS_KEY);
+let pendingRelations = readLocalObject(PENDING_RELATIONS_KEY);
 
 localStorage.removeItem('consultamed.baseUrl');
+localStorage.removeItem('consultamed.manualRelations');
+localStorage.removeItem('consultamed.pendingRelations');
 sessionStorage.removeItem('consultamed.baseCode');
 baseUrl.value = '';
 baseCode.value = '';
@@ -125,29 +130,84 @@ function wireActiveSearch(root) {
   });
 }
 
+function relationCandidateFromRecord(record) {
+  if (!record?.url || !record?.name || !record?.stock || record.source !== 'CR') return null;
+  return {
+    source: 'CR',
+    url: record.url,
+    name: record.name,
+    active: record.active || '',
+    brand: record.brand || '',
+    ean: record.ean || '',
+    family: record.family || '',
+    base_name: record.base_name || '',
+    kind: record.kind || '',
+    image: record.image || ''
+  };
+}
+
 function rememberRelationCandidates(records) {
   let changed = false;
   for (const record of records) {
     const key = String(record?.relationKey || '');
-    const candidates = Array.isArray(record?.relationCandidates) ? record.relationCandidates : [];
-    if (!key || !candidates.length) continue;
+    if (!key) continue;
+
+    const candidates = Array.isArray(record?.relationCandidates) ? [...record.relationCandidates] : [];
+    const automaticCandidate = relationCandidateFromRecord(record);
+    if (automaticCandidate) candidates.unshift(automaticCandidate);
+
+    const unique = [];
+    const seen = new Set();
+    for (const candidate of candidates) {
+      const id = String(candidate?.url || '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      unique.push(candidate);
+    }
+    if (!unique.length) continue;
+
     pendingRelations[key] = {
       key,
       baseName: String(record?.stock?.name || record?.name || ''),
-      candidates
+      candidates: unique
     };
     changed = true;
   }
-  if (changed) writeLocalObject('consultamed.pendingRelations', pendingRelations);
+  if (changed) writeLocalObject(PENDING_RELATIONS_KEY, pendingRelations);
+}
+
+function rawBaseRecord(record) {
+  const stock = record?.stock || null;
+  const baseName = String(stock?.name || record?.name || '');
+  return {
+    source: 'BASE',
+    name: baseName,
+    active: '',
+    brand: '',
+    ean: String(stock?.ean || record?.ean || ''),
+    family: '',
+    base_name: baseName,
+    kind: '',
+    image: '',
+    url: '',
+    stock,
+    relationKey: String(record?.relationKey || ''),
+    relationCandidates: Array.isArray(record?.relationCandidates) ? record.relationCandidates : []
+  };
 }
 
 function applyManualRelations(records) {
   return records.map((record) => {
     const key = String(record?.relationKey || '');
-    const selected = key ? manualRelations[key] : null;
-    if (!selected || selected === '__none__' || typeof selected !== 'object') return record;
+    if (!key || !record?.stock) return record;
+
+    const selected = manualRelations[key];
+    if (!selected || selected === '__none__' || typeof selected !== 'object') {
+      return rawBaseRecord(record);
+    }
+
     return {
-      ...record,
+      ...rawBaseRecord(record),
       ...selected,
       source: 'CR',
       stock: record.stock || null,
@@ -197,7 +257,7 @@ function saveManualRelations() {
     if (candidate) manualRelations[key] = candidate;
   });
 
-  writeLocalObject('consultamed.manualRelations', manualRelations);
+  writeLocalObject(MANUAL_RELATIONS_KEY, manualRelations);
   lastRecords = applyManualRelations(lastRawRecords);
   render(lastRecords);
   relationsDialog.close();
