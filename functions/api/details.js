@@ -10,7 +10,7 @@ export async function onRequestPost(context) {
 
     const response = await fetch(url, {
       headers: {
-        'user-agent': 'Mozilla/5.0 ConsultaMed/2.5',
+        'user-agent': 'Mozilla/5.0 ConsultaMed/2.6',
         'accept': 'text/html,application/xhtml+xml'
       }
     });

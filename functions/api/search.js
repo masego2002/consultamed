@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '2.5';
+const APP_VERSION = '2.6';
 const MAX_CR_BYTES = 12_000_000;
 const MAX_STOCK_TERMS = 48;
 const STOCK_BATCH_SIZE = 4;
@@ -9,6 +9,7 @@ export async function onRequestPost(context) {
     const body = await context.request.json();
     const term = String(body?.term || '').trim().slice(0, 180);
     const requestedFormula = String(body?.formula || '').trim().slice(0, 280);
+    const relationOptions = body?.relationOptions === true;
     if (term.length < 2) return json({error: 'Pesquisa muito curta.'}, 400);
 
     const cr = await searchCR(term, requestedFormula);
@@ -34,7 +35,7 @@ export async function onRequestPost(context) {
       const stock = associate(record, stockRows);
       if (stock) usedStock.add(stock.id);
 
-      if (isGeneric(record) && (!stock || Number(stock.qty) < 1)) continue;
+      if (!relationOptions && isGeneric(record) && (!stock || Number(stock.qty) < 1)) continue;
 
       records.push({
         ...record,

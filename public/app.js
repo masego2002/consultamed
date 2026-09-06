@@ -172,8 +172,6 @@ function rememberRelationCandidates(records) {
       seen.add(id);
       unique.push(candidate);
     }
-    if (!unique.length) continue;
-
     pendingRelations[key] = {
       key,
       baseName: String(record?.stock?.name || record?.name || ''),
@@ -261,6 +259,53 @@ function renderRelationsManager(onlyKey = '') {
   }).join('');
 }
 
+async function loadRelationOptions(record, key) {
+  const term = String(record?.active || record?.stock?.name || record?.name || '').trim();
+  if (term.length < 2) return;
+
+  try {
+    const response = await fetch('/api/search', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({
+        term,
+        formula: String(record?.active || '').trim(),
+        mode: 'others',
+        relationOptions: true
+      })
+    });
+    if (!response.ok) throw new Error('Falha ao buscar relações.');
+    const data = await response.json();
+    if (relationEditorKey !== key || !relationsDialog.open) return;
+
+    const options = (Array.isArray(data.records) ? data.records : [])
+      .filter((item) => item?.source === 'CR' && item?.url && item?.name)
+      .map((item) => ({
+        source: 'CR',
+        url: item.url,
+        name: item.name,
+        active: item.active || '',
+        brand: item.brand || '',
+        ean: item.ean || '',
+        family: item.family || '',
+        base_name: item.base_name || '',
+        kind: item.kind || '',
+        image: item.image || ''
+      }));
+
+    const entry = pendingRelations[key];
+    if (!entry) return;
+    const unique = new Map((entry.candidates || []).map((candidate) => [candidate.url, candidate]));
+    for (const option of options) unique.set(option.url, option);
+    entry.candidates = [...unique.values()];
+    pendingRelations[key] = entry;
+    writeLocalObject(PENDING_RELATIONS_KEY, pendingRelations);
+    renderRelationsManager(key);
+  } catch (_) {
+    if (relationEditorKey === key && relationsDialog.open) renderRelationsManager(key);
+  }
+}
+
 function saveManualRelations() {
   relationsBody.querySelectorAll('select[data-relation-key]').forEach((select) => {
     const key = select.dataset.relationKey || '';
@@ -292,14 +337,21 @@ function saveManualRelations() {
   }
 }
 
-function openRelationEditor(record) {
+async function openRelationEditor(record) {
   const key = String(record?.relationKey || '');
   if (!key) return;
   rememberRelationCandidates([record]);
   relationEditorKey = key;
   relationsTitle.textContent = 'Alterar relação';
-  renderRelationsManager(key);
+  const entry = pendingRelations[key];
+  if (entry?.candidates?.length) {
+    renderRelationsManager(key);
+  } else {
+    $('saveRelations').classList.add('hidden');
+    relationsBody.innerHTML = '<div class="search-loader"><span class="spinner spinner-large"></span></div>';
+  }
   relationsDialog.showModal();
+  await loadRelationOptions(record, key);
 }
 
 function render(records) {
@@ -387,8 +439,7 @@ function showDetails(record) {
   const token = ++detailsRequestToken;
   currentDetailsRecord = record;
   $('detailsTitle').textContent = record.name;
-  const relationEntry = pendingRelations[String(record?.relationKey || '')];
-  changeRelationBtn.classList.toggle('hidden', !record?.stock || !record?.relationKey || !relationEntry?.candidates?.length);
+  changeRelationBtn.classList.toggle('hidden', !record?.stock || !record?.relationKey);
   const family = record.family || '';
   const bula = family ? `https://consultaremedios.com.br/${encodeURIComponent(family)}/bula` : record.url;
   const localItems = localPresentations(record);
