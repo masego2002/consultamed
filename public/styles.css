@@ -34,11 +34,13 @@ button { cursor: pointer; }
   padding: 14px 16px; background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
 }
-.brand { color: var(--brand); font-size: 1.35rem; font-weight: 800; }
-.brand span { color: var(--muted); font-size: .78rem; font-weight: 600; margin-left: 5px; }
+.brand { display: flex; align-items: center; gap: 8px; color: var(--brand); font-size: 1.35rem; font-weight: 800; }
+.brand-logo { width: 32px; height: 32px; border-radius: 8px; flex: 0 0 32px; }
+.brand span { color: var(--muted); font-size: .78rem; font-weight: 600; margin-left: -3px; }
 .container { width: min(760px, 100%); margin: 0 auto; padding: 16px 14px 40px; }
 .panel { display: block; }
 .hidden { display: none !important; }
+body:has(#configBtn[aria-pressed="false"]) #configPanel .settings-only { display: none; }
 h1 { margin: 4px 0 18px; font-size: 1.4rem; }
 label { display: block; margin: 14px 0 7px; font-weight: 650; }
 input[type="url"], input[type="password"], input[type="search"] {
