@@ -10,6 +10,8 @@ const onlyStock = $('onlyStock');
 const statusEl = $('status');
 const resultsEl = $('results');
 const detailsDialog = $('detailsDialog');
+const relationsDialog = $('relationsDialog');
+const relationsBody = $('relationsBody');
 const searchBtn = $('searchBtn');
 const otherSearchBtn = $('otherSearchBtn');
 const cancelSearchBtn = $('cancelSearch');
@@ -18,7 +20,9 @@ const searchBtnSpinner = $('searchBtnSpinner');
 const otherSearchBtnText = $('otherSearchBtnText');
 const otherSearchBtnSpinner = $('otherSearchBtnSpinner');
 const searchLoader = $('searchLoader');
+const updateRelationsBtn = $('updateRelations');
 
+let lastRawRecords = [];
 let lastRecords = [];
 let usingStock = false;
 let detailsRequestToken = 0;
@@ -26,12 +30,27 @@ let searchController = null;
 let searchSequence = 0;
 let sessionBaseUrl = sessionStorage.getItem('consultamed.baseUrl') || '';
 let connectionCode = '';
+let manualRelations = readLocalObject('consultamed.manualRelations');
+let pendingRelations = readLocalObject('consultamed.pendingRelations');
 
 localStorage.removeItem('consultamed.baseUrl');
 sessionStorage.removeItem('consultamed.baseCode');
 baseUrl.value = '';
 baseCode.value = '';
 onlyStock.disabled = true;
+
+function readLocalObject(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalObject(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
 
 function syncConnectionFields() {
   const hasSessionUrl = Boolean(sessionBaseUrl);
@@ -82,7 +101,7 @@ function toggleConfig() {
 }
 
 function esc(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt',"'":'&#39;','"':'&quot;'}[c]));
+  return String(value ?? '').replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 }
 
 function stockLine(record) {
@@ -104,6 +123,84 @@ function wireActiveSearch(root) {
       searchByFormula(active);
     });
   });
+}
+
+function rememberRelationCandidates(records) {
+  let changed = false;
+  for (const record of records) {
+    const key = String(record?.relationKey || '');
+    const candidates = Array.isArray(record?.relationCandidates) ? record.relationCandidates : [];
+    if (!key || !candidates.length) continue;
+    pendingRelations[key] = {
+      key,
+      baseName: String(record?.stock?.name || record?.name || ''),
+      candidates
+    };
+    changed = true;
+  }
+  if (changed) writeLocalObject('consultamed.pendingRelations', pendingRelations);
+}
+
+function applyManualRelations(records) {
+  return records.map((record) => {
+    const key = String(record?.relationKey || '');
+    const selected = key ? manualRelations[key] : null;
+    if (!selected || selected === '__none__' || typeof selected !== 'object') return record;
+    return {
+      ...record,
+      ...selected,
+      source: 'CR',
+      stock: record.stock || null,
+      relationKey: key,
+      relationCandidates: record.relationCandidates || []
+    };
+  });
+}
+
+function renderRelationsManager() {
+  const entries = Object.values(pendingRelations)
+    .filter((entry) => entry && entry.key && Array.isArray(entry.candidates) && entry.candidates.length)
+    .sort((a, b) => String(a.baseName || '').localeCompare(String(b.baseName || ''), 'pt-BR'));
+
+  relationsBody.innerHTML = entries.map((entry) => {
+    const saved = manualRelations[entry.key];
+    const selectedValue = saved === '__none__' ? '__none__' : (saved && typeof saved === 'object' ? saved.url || '' : '');
+    const candidates = entry.candidates.filter((candidate) => candidate?.url && candidate?.name);
+    return `
+      <div class="relation-item">
+        <strong>${esc(entry.baseName)}</strong>
+        <select data-relation-key="${esc(entry.key)}">
+          <option value="" ${selectedValue === '' ? 'selected' : ''}>—</option>
+          <option value="__none__" ${selectedValue === '__none__' ? 'selected' : ''}>Sem relação</option>
+          ${candidates.map((candidate) => `<option value="${esc(candidate.url)}" ${selectedValue === candidate.url ? 'selected' : ''}>${esc(candidate.name)}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  }).join('');
+}
+
+function saveManualRelations() {
+  relationsBody.querySelectorAll('select[data-relation-key]').forEach((select) => {
+    const key = select.dataset.relationKey || '';
+    if (!key) return;
+    const value = select.value;
+    if (!value) {
+      delete manualRelations[key];
+      return;
+    }
+    if (value === '__none__') {
+      manualRelations[key] = '__none__';
+      return;
+    }
+    const entry = pendingRelations[key];
+    const candidate = entry?.candidates?.find((item) => item?.url === value);
+    if (candidate) manualRelations[key] = candidate;
+  });
+
+  writeLocalObject('consultamed.manualRelations', manualRelations);
+  lastRecords = applyManualRelations(lastRawRecords);
+  render(lastRecords);
+  relationsDialog.close();
 }
 
 function render(records) {
@@ -281,7 +378,9 @@ async function runSearch(term, {formula = '', mode = 'base'} = {}) {
     if (sequence !== searchSequence) return;
     if (!response.ok) throw new Error(data.error || 'Falha na pesquisa.');
 
-    lastRecords = data.records || [];
+    lastRawRecords = data.records || [];
+    rememberRelationCandidates(lastRawRecords);
+    lastRecords = applyManualRelations(lastRawRecords);
     render(lastRecords);
     const visibleCount = lastRecords.filter((r) => !onlyStock.checked || (r.stock && Number(r.stock.qty) >= 1)).length;
     const notes = Array.isArray(data.notes) ? data.notes.filter(Boolean) : [];
@@ -371,6 +470,12 @@ $('configBtn').addEventListener('click', toggleConfig);
 searchBtn.addEventListener('click', doSearch);
 otherSearchBtn.addEventListener('click', doOtherSearch);
 cancelSearchBtn.addEventListener('click', cancelSearch);
+updateRelationsBtn.addEventListener('click', () => {
+  renderRelationsManager();
+  relationsDialog.showModal();
+});
+$('saveRelations').addEventListener('click', saveManualRelations);
+$('closeRelations').addEventListener('click', () => relationsDialog.close());
 query.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter') return;
   event.preventDefault();
@@ -394,6 +499,9 @@ $('closeDetails').addEventListener('click', () => detailsDialog.close());
 
 detailsDialog.addEventListener('click', (event) => {
   if (event.target === detailsDialog) detailsDialog.close();
+});
+relationsDialog.addEventListener('click', (event) => {
+  if (event.target === relationsDialog) relationsDialog.close();
 });
 
 syncConnectionFields();
