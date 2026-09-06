@@ -1,3 +1,3 @@
 export function onRequestGet() {
-  return Response.json({ok: true, app: 'ConsultaMed', version: '2.1'});
+  return Response.json({ok: true, app: 'ConsultaMed', version: '2.2'});
 }
