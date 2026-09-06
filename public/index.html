@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f7f8">
+  <title>ConsultaMed</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">ConsultaMed <span>1.3</span></div>
+    <button id="configBtn" class="icon-btn" type="button" aria-label="Configurações">⚙</button>
+  </header>
+
+  <main class="container">
+    <section id="configPanel" class="panel">
+      <h1>Conexão</h1>
+      <label for="mbileUrl">URL do MBILE</label>
+      <input id="mbileUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://xxxx.trycloudflare.com">
+
+      <label for="mbileCode">Código</label>
+      <input id="mbileCode" type="password" inputmode="numeric" autocomplete="off" placeholder="Código de acesso">
+
+      <div class="row">
+        <button id="saveConnection" class="primary" type="button">Usar MBILE</button>
+        <button id="skipConnection" type="button">Continuar sem base</button>
+      </div>
+      <p class="hint">A URL fica salva neste aparelho. O código fica somente nesta sessão.</p>
+    </section>
+
+    <section id="searchPanel" class="panel hidden">
+      <div class="search-row">
+        <input id="query" type="search" autocomplete="off" placeholder="Medicamento, princípio ativo ou EAN">
+        <button id="searchBtn" class="primary" type="button">Pesquisar</button>
+      </div>
+
+      <label class="check-row">
+        <input id="onlyStock" type="checkbox">
+        <span>Somente em estoque</span>
+      </label>
+
+      <div id="status" class="status"></div>
+      <div id="results" class="results"></div>
+    </section>
+  </main>
+
+  <dialog id="detailsDialog">
+    <div class="dialog-head">
+      <strong id="detailsTitle"></strong>
+      <button id="closeDetails" class="icon-btn" type="button">✕</button>
+    </div>
+    <div id="detailsBody"></div>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
