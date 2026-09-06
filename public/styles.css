@@ -50,30 +50,55 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in s
 button { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); padding: 12px 14px; }
 button.primary { background: var(--primary); border-color: var(--primary); color: white; font-weight: 750; }
 .icon-btn { padding: 8px 10px; min-width: 42px; }
-.hint, .status { color: var(--muted); font-size: .9rem; }
-.search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.status { color: var(--muted); font-size: .9rem; }
+.search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+.search-actions { display: flex; gap: 8px; min-width: 154px; }
+.search-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-width: 154px; }
+.cancel-search { width: 48px; min-width: 48px; padding: 0; font-size: 1.35rem; line-height: 1; }
+.spinner { display: inline-block; border: 3px solid color-mix(in srgb, currentColor 28%, transparent); border-top-color: currentColor; border-radius: 50%; animation: consultamed-spin .72s linear infinite; }
+.spinner-button { width: 18px; height: 18px; flex: 0 0 18px; }
+.search-loader { min-height: 92px; display: flex; align-items: center; justify-content: center; }
+.spinner-large { width: 42px; height: 42px; color: var(--primary); border-width: 4px; }
+@keyframes consultamed-spin { to { transform: rotate(360deg); } }
 .check-row { display: flex; gap: 8px; align-items: center; font-weight: 500; }
 .status { min-height: 22px; margin: 8px 0; }
 .status.error { color: var(--danger); }
 .results { display: grid; gap: 10px; }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px;
-  box-shadow: 0 1px 2px rgba(0,0,0,.03);
+  box-shadow: 0 1px 2px rgba(0,0,0,.03); touch-action: manipulation;
 }
+.card:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 24%, transparent); outline-offset: 2px; }
 .card h2 { margin: 0 0 6px; font-size: 1.02rem; color: var(--primary); }
 .card p { margin: 4px 0; }
 .muted { color: var(--muted); font-size: .9rem; }
-.stock-positive { font-weight: 750; }
+.stock-positive { margin: 2px 0 7px !important; font-weight: 800; color: var(--text); }
 .card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .card-actions button { padding: 8px 10px; }
+.active-row { line-height: 1.35; }
+.active-link {
+  display: inline; padding: 0; border: 0; border-radius: 0; background: transparent;
+  color: var(--primary); text-align: left; text-decoration: underline; text-underline-offset: 2px;
+}
+.active-link:hover, .active-link:focus-visible { text-decoration-thickness: 2px; outline: none; }
 
-#detailsDialog { width: min(680px, calc(100% - 24px)); border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--text); padding: 0; }
+#detailsDialog { width: min(680px, calc(100% - 24px)); max-height: calc(100dvh - 28px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--text); padding: 0; }
 #detailsDialog::backdrop { background: rgba(0,0,0,.45); }
-.dialog-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--line); }
+.dialog-head { position: sticky; top: 0; z-index: 2; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--line); background: var(--card); }
 #detailsBody { padding: 14px; }
 #detailsBody a { color: var(--primary); }
+#detailsBody p { line-height: 1.4; }
+.medicine-image-wrap { display: flex; justify-content: center; margin: 0 0 14px; }
+.medicine-image { display: block; max-width: min(320px, 100%); max-height: 230px; object-fit: contain; border-radius: 12px; background: #fff; }
+.details-section { margin: 16px 0; }
+.details-presentations { margin-top: 7px; }
+.presentations-list { margin: 0; padding-left: 20px; }
+.presentations-list li { margin: 5px 0; }
+.details-active-link { font-size: inherit; }
 
 @media (max-width: 520px) {
   .search-row { grid-template-columns: 1fr; }
-  .search-row button { width: 100%; }
+  .search-actions { width: 100%; min-width: 0; }
+  .search-button { flex: 1; min-width: 0; }
+  #detailsDialog { width: calc(100% - 20px); max-height: calc(100dvh - 20px); }
 }
