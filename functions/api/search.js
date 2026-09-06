@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '1.5';
+const APP_VERSION = '2.4';
 const MAX_CR_BYTES = 12_000_000;
 const MAX_STOCK_TERMS = 48;
 const STOCK_BATCH_SIZE = 4;

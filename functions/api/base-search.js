@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.4';
 const MAX_CR_BYTES = 12_000_000;
 
 export async function onRequestPost(context) {
