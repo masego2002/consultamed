@@ -49,6 +49,7 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in s
 .row { display: grid; grid-template-columns: 1fr; gap: 9px; margin-top: 18px; }
 button { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); padding: 12px 14px; }
 button.primary { background: var(--primary); border-color: var(--primary); color: white; font-weight: 750; }
+#skipConnection { justify-self: center; width: auto; padding: 7px 11px; margin-top: 30px; font-size: .82rem; }
 .icon-btn { padding: 8px 10px; min-width: 42px; }
 .status { color: var(--muted); font-size: .9rem; }
 .search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
