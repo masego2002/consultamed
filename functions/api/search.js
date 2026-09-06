@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 const MAX_CR_BYTES = 12_000_000;
 const MAX_STOCK_TERMS = 48;
 const STOCK_BATCH_SIZE = 4;
@@ -15,12 +15,12 @@ export async function onRequestPost(context) {
     let stockRows = [];
     const notes = [...cr.notes];
 
-    const mbileUrl = String(body?.mbileUrl || '').trim();
-    const mbileCode = String(body?.mbileCode || '').trim();
+    const baseUrl = String(body?.baseUrl || '').trim();
+    const baseCode = String(body?.baseCode || '').trim();
 
-    if (mbileUrl && mbileCode) {
+    if (baseUrl && baseCode) {
       try {
-        stockRows = await searchStock(mbileUrl, mbileCode, term, cr.records, cr.formulas);
+        stockRows = await searchStock(baseUrl, baseCode, term, cr.records, cr.formulas);
       } catch (error) {
         notes.push('Estoque indisponível: ' + safeMessage(error));
       }
@@ -38,14 +38,14 @@ export async function onRequestPost(context) {
       records.push({...record, stock: stock || null});
     }
 
-    if (mbileUrl && mbileCode) {
+    if (baseUrl && baseCode) {
       for (const row of stockRows) {
         if (usedStock.has(row.id) || Number(row.qty) < 1) continue;
         if (!isStockRowRelevant(row, term, cr.records, cr.formulas)) continue;
 
         const formulaHint = cr.formulas.length === 1 ? cr.formulas[0] : '';
         records.push({
-          source: 'MBILE',
+          source: 'BASE',
           name: row.name,
           active: formulaHint,
           brand: '',
@@ -292,7 +292,7 @@ function cleanImageUrl(value) {
 }
 
 async function searchStock(link, code, term, crRecords, formulas = []) {
-  const login = await loginMBILE(link, code);
+  const login = await loginBASE(link, code);
   const terms = [];
   const addTerm = (value) => {
     const q = String(value || '').trim();
@@ -334,13 +334,13 @@ async function searchStock(link, code, term, crRecords, formulas = []) {
   return [...rows.values()];
 }
 
-async function loginMBILE(link, code) {
-  const initial = await safeFetch(normalizeMBILEUrl(link), {headers: {'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`}}, true);
+async function loginBASE(link, code) {
+  const initial = await safeFetch(normalizeBASEUrl(link), {headers: {'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`}}, true);
   const initialHtml = await initial.text();
-  if (!/name=["']codigo["']/i.test(initialHtml)) throw new Error('Autenticação do MBILE não encontrada.');
+  if (!/name=["']codigo["']/i.test(initialHtml)) throw new Error('Autenticação da BASE não encontrada.');
 
   const base = new URL(initial.url).origin;
-  if (!isAllowedMBILEHost(new URL(base).hostname)) throw new Error('Destino do MBILE não permitido.');
+  if (!isAllowedBASEHost(new URL(base).hostname)) throw new Error('Destino da BASE não permitido.');
 
   const initialCookie = extractCookies(initial.headers);
   const loginResponse = await safeFetch(`${base}/login`, {
@@ -355,7 +355,7 @@ async function loginMBILE(link, code) {
   }, false);
 
   const cookie = mergeCookies(initialCookie, extractCookies(loginResponse.headers));
-  if (!cookie) throw new Error('Sessão do MBILE não foi criada.');
+  if (!cookie) throw new Error('Sessão da BASE não foi criada.');
 
   const check = await safeFetch(`${base}/produtos?q=${encodeURIComponent('___verificacao_de_conexao___')}`, {headers: {'cookie': cookie, 'user-agent': `Mozilla/5.0 ConsultaMed/${APP_VERSION}`}}, true);
   const checkHtml = await check.text();
@@ -365,7 +365,7 @@ async function loginMBILE(link, code) {
 
 function parseStock(html) {
   if (/name=["']codigo["']/i.test(html)) throw new Error('Código incorreto ou sessão encerrada.');
-  if (!/name=["']q["']/i.test(html)) throw new Error('Página de produtos do MBILE não encontrada.');
+  if (!/name=["']q["']/i.test(html)) throw new Error('Página de produtos da BASE não encontrada.');
 
   const rows = [];
   for (const m of html.matchAll(/<article\b[^>]*class=["'][^"']*\bitem\b[^"']*["'][^>]*>([\s\S]*?)<\/article>/gi)) {
@@ -461,7 +461,7 @@ async function fetchText(url, label) {
 
 async function safeFetch(input, init = {}, follow = true) {
   let url = new URL(input);
-  validateMBILEURL(url);
+  validateBASEURL(url);
   let options = {...init, redirect: 'manual'};
 
   for (let i = 0; i < 5; i++) {
@@ -470,30 +470,30 @@ async function safeFetch(input, init = {}, follow = true) {
     const location = response.headers.get('location');
     if (!location) return response;
     url = new URL(location, url);
-    validateMBILEURL(url);
+    validateBASEURL(url);
     if (response.status === 303 || ((response.status === 301 || response.status === 302) && options.method === 'POST')) {
       options = {headers: options.headers, method: 'GET', redirect: 'manual'};
     }
   }
-  throw new Error('Muitos redirecionamentos no link do MBILE.');
+  throw new Error('Muitos redirecionamentos no link da BASE.');
 }
 
-function normalizeMBILEUrl(value) {
+function normalizeBASEUrl(value) {
   let v = String(value || '').trim().replace(/^[<>"']+|[<>"']+$/g, '');
   v = v.replace(/^https;\/*/i, 'https://');
   const repeated = v.match(/^(https:\/\/urlshort\.at\/[a-zA-Z0-9]+?)(?:h?ttps?[:;]\/\/urlshort\.at\/).+$/i);
   if (repeated) v = repeated[1];
   if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
   const url = new URL(v);
-  validateMBILEURL(url);
+  validateBASEURL(url);
   return url.toString();
 }
 
-function validateMBILEURL(url) {
-  if (url.protocol !== 'https:' || url.username || url.password || !isAllowedMBILEHost(url.hostname)) throw new Error('URL do MBILE inválida.');
+function validateBASEURL(url) {
+  if (url.protocol !== 'https:' || url.username || url.password || !isAllowedBASEHost(url.hostname)) throw new Error('URL da BASE inválida.');
 }
 
-function isAllowedMBILEHost(hostname) {
+function isAllowedBASEHost(hostname) {
   const h = String(hostname || '').toLowerCase();
   return h === 'urlshort.at' || h.endsWith('.trycloudflare.com');
 }
