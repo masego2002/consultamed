@@ -25,7 +25,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 
 .topbar {
@@ -47,11 +47,12 @@ input[type="url"], input[type="password"], input[type="search"] {
   width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text);
   padding: 14px 13px; outline: none;
 }
-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); outline: none; }
 .row { display: grid; grid-template-columns: 1fr; gap: 9px; margin-top: 18px; }
 button { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text); padding: 12px 14px; }
 button.primary { background: var(--primary); border-color: var(--primary); color: white; font-weight: 750; }
 #skipConnection { justify-self: center; width: auto; padding: 7px 11px; margin-top: 30px; font-size: .82rem; }
+.settings-action { width: 100%; margin-top: 14px; }
 .icon-btn { padding: 8px 10px; min-width: 42px; }
 .status { color: var(--muted); font-size: .9rem; }
 .search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
@@ -85,8 +86,11 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 }
 .active-link:hover, .active-link:focus-visible { text-decoration-thickness: 2px; outline: none; }
 
-#detailsDialog { width: min(680px, calc(100% - 24px)); max-height: calc(100dvh - 28px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--text); padding: 0; }
-#detailsDialog::backdrop { background: rgba(0,0,0,.45); }
+#detailsDialog, #relationsDialog {
+  width: min(680px, calc(100% - 24px)); max-height: calc(100dvh - 28px); overflow: auto;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--text); padding: 0;
+}
+#detailsDialog::backdrop, #relationsDialog::backdrop { background: rgba(0,0,0,.45); }
 .dialog-head { position: sticky; top: 0; z-index: 2; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--line); background: var(--card); }
 #detailsBody { padding: 14px; }
 #detailsBody a { color: var(--primary); }
@@ -98,10 +102,16 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 .presentations-list { margin: 0; padding-left: 20px; }
 .presentations-list li { margin: 5px 0; }
 .details-active-link { font-size: inherit; }
+.relations-content { padding: 14px; }
+#relationsBody { display: grid; gap: 12px; }
+.relation-item { display: grid; gap: 7px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.relation-item strong { line-height: 1.3; }
+.relation-item select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); padding: 10px 11px; }
+.relations-save { width: 100%; margin-top: 16px; }
 
 @media (max-width: 520px) {
   .search-row { grid-template-columns: 1fr; }
   .search-actions { width: 100%; min-width: 0; }
   .search-button { flex: 1; min-width: 0; }
-  #detailsDialog { width: calc(100% - 20px); max-height: calc(100dvh - 20px); }
+  #detailsDialog, #relationsDialog { width: calc(100% - 20px); max-height: calc(100dvh - 20px); }
 }
