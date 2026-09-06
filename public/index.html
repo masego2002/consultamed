@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>ConsultaMed</title>
-  <link rel="icon" href="/icon.png?v=2.4" type="image/png">
-  <link rel="apple-touch-icon" href="/icon.png?v=2.4">
-  <link rel="manifest" href="/manifest.webmanifest?v=2.4">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="/icon.png?v=2.5" type="image/png">
+  <link rel="apple-touch-icon" href="/icon.png?v=2.5">
+  <link rel="manifest" href="/manifest.webmanifest?v=2.5">
+  <link rel="stylesheet" href="/styles.css?v=2.5">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><img class="brand-logo" src="/icon.png?v=2.4" alt="">ConsultaMed <span>2.4</span></div>
+    <div class="brand"><img class="brand-logo" src="/icon.png?v=2.5" alt="">ConsultaMed <span>2.5</span></div>
     <button id="configBtn" class="icon-btn" type="button" aria-label="Configurações" aria-pressed="false">⚙</button>
   </header>
 
@@ -65,14 +65,17 @@
   <dialog id="detailsDialog">
     <div class="dialog-head">
       <strong id="detailsTitle"></strong>
-      <button id="closeDetails" class="icon-btn" type="button" aria-label="Fechar">✕</button>
+      <div class="dialog-actions">
+        <button id="changeRelation" class="icon-btn relation-help hidden" type="button" aria-label="Alterar relação" title="Alterar relação">?</button>
+        <button id="closeDetails" class="icon-btn" type="button" aria-label="Fechar">✕</button>
+      </div>
     </div>
     <div id="detailsBody"></div>
   </dialog>
 
   <dialog id="relationsDialog">
     <div class="dialog-head">
-      <strong>Relações duvidosas</strong>
+      <strong id="relationsTitle">Relações duvidosas</strong>
       <button id="closeRelations" class="icon-btn" type="button" aria-label="Fechar">✕</button>
     </div>
     <div class="relations-content">
@@ -81,6 +84,6 @@
     </div>
   </dialog>
 
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=2.5" defer></script>
 </body>
 </html>

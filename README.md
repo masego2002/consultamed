@@ -1,4 +1,4 @@
-# ConsultaMed 2.4
+# ConsultaMed 2.5
 
 Versão web do ConsultaMed preparada para Cloudflare Pages.
 

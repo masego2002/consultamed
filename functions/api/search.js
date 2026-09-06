@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 const MAX_CR_BYTES = 12_000_000;
 const MAX_STOCK_TERMS = 48;
 const STOCK_BATCH_SIZE = 4;
@@ -28,6 +28,7 @@ export async function onRequestPost(context) {
 
     const usedStock = new Set();
     const records = [];
+    const candidateCache = new Map();
 
     for (const record of cr.records) {
       const stock = associate(record, stockRows);
@@ -35,7 +36,12 @@ export async function onRequestPost(context) {
 
       if (isGeneric(record) && (!stock || Number(stock.qty) < 1)) continue;
 
-      records.push({...record, stock: stock || null});
+      records.push({
+        ...record,
+        stock: stock || null,
+        relationKey: stock ? relationKey(stock) : '',
+        relationCandidates: stock ? candidatesForStock(stock, cr.records, candidateCache) : []
+      });
     }
 
     if (baseUrl && baseCode) {
@@ -55,7 +61,9 @@ export async function onRequestPost(context) {
           kind: '',
           image: '',
           url: `${CR}/busca?termo=${encodeURIComponent(row.name)}`,
-          stock: row
+          stock: row,
+          relationKey: relationKey(row),
+          relationCandidates: candidatesForStock(row, cr.records, candidateCache)
         });
       }
     }
@@ -424,6 +432,34 @@ function associate(record, rows) {
   }
 
   return bestScore >= 10 ? best : null;
+}
+
+function relationKey(row) {
+  if (row.id) return `id:${row.id}`;
+  if (row.ean) return `ean:${row.ean}`;
+  return `name:${norm(row.name)}`;
+}
+
+function candidatesForStock(row, records, cache) {
+  const key = relationKey(row);
+  if (cache.has(key)) return cache.get(key);
+  const candidates = records
+    .filter((record) => associate(record, [row]))
+    .slice(0, 12)
+    .map((record) => ({
+      source: 'CR',
+      url: record.url,
+      name: record.name,
+      active: record.active,
+      brand: record.brand,
+      ean: record.ean,
+      family: record.family,
+      base_name: record.base_name,
+      kind: record.kind,
+      image: record.image
+    }));
+  cache.set(key, candidates);
+  return candidates;
 }
 
 function isStockRowRelevant(row, term, records, formulas) {

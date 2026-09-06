@@ -1,5 +1,5 @@
 const CR = 'https://consultaremedios.com.br';
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 const MAX_CR_BYTES = 12_000_000;
 
 export async function onRequestPost(context) {
@@ -22,13 +22,15 @@ export async function onRequestPost(context) {
     const crRecords = crResult.status === 'fulfilled' ? crResult.value : [];
     const records = rows.map((row) => {
       const key = relationKey(row);
-      const trusted = trustedCRMatch(row, crRecords);
+      const ranked = rankCRMatches(row, crRecords);
+      const trusted = confidentCRMatch(ranked);
+      const candidates = ranked.slice(0, 10).map(({record}) => relationCandidate(record));
       if (trusted) {
         return {
           ...trusted,
           stock: row,
           relationKey: key,
-          relationCandidates: []
+          relationCandidates: candidates
         };
       }
 
@@ -45,7 +47,7 @@ export async function onRequestPost(context) {
         url: '',
         stock: row,
         relationKey: key,
-        relationCandidates: candidateCRMatches(row, crRecords)
+        relationCandidates: candidates
       };
     });
 
@@ -189,44 +191,14 @@ function relationKey(row) {
   return `name:${norm(row.name)}`;
 }
 
-function trustedCRMatch(row, records) {
-  if (row.ean) {
-    const exactEan = records.find((record) => record.ean && record.ean === row.ean);
-    if (exactEan) return exactEan;
-  }
+const RELATION_STOP_TOKENS = new Set([
+  'com', 'caixa', 'cx', 'c', 'contendo', 'comprimido', 'comprimidos', 'comp',
+  'capsula', 'capsulas', 'cap', 'frasco', 'fr', 'blister', 'blisteres', 'unidade',
+  'unidades', 'revestido', 'revestidos', 'uso', 'oral', 'adulto', 'pediatrico'
+]);
 
-  const rowName = norm(row.name);
-  if (!rowName) return null;
-  return records.find((record) => norm(record.name) === rowName) || null;
-}
-
-function candidateCRMatches(row, records) {
-  const rowName = norm(row.name);
-  if (!rowName) return [];
-  const rowTokens = new Set(rowName.split(' ').filter(Boolean));
-  const scored = [];
-
-  for (const record of records) {
-    const recordName = norm(record.name);
-    if (!recordName || recordName === rowName) continue;
-
-    const recordTokens = new Set(recordName.split(' ').filter(Boolean));
-    let overlap = 0;
-    for (const token of recordTokens) if (rowTokens.has(token)) overlap += 1;
-
-    const base = norm(record.base_name || record.family?.replaceAll('-', ' ') || '');
-    let score = overlap * 4;
-    if (base && rowName.startsWith(base)) score += 18;
-    if (base && matches(base, rowName)) score += 10;
-    if (rowName.startsWith(recordName.split(' ')[0])) score += 8;
-    if (record.ean && row.ean && record.ean === row.ean) score += 200;
-
-    if (score < 8) continue;
-    scored.push({score, record});
-  }
-
-  scored.sort((a, b) => b.score - a.score || norm(a.record.name).localeCompare(norm(b.record.name), 'pt-BR'));
-  return scored.slice(0, 8).map(({record}) => ({
+function relationCandidate(record) {
+  return {
     source: 'CR',
     url: record.url,
     name: record.name,
@@ -237,7 +209,104 @@ function candidateCRMatches(row, records) {
     base_name: record.base_name,
     kind: record.kind,
     image: record.image
-  }));
+  };
+}
+
+function rankCRMatches(row, records) {
+  const rowName = norm(row.name);
+  if (!rowName) return [];
+  const rowTokens = meaningfulTokens(row.name);
+  const rowPresentation = presentationTokens(row.name);
+  const scored = [];
+
+  for (const record of records) {
+    const recordName = norm(record.name);
+    if (!recordName) continue;
+    const recordTokens = meaningfulTokens(record.name);
+    const recordPresentation = presentationTokens(record.name);
+    const base = norm(record.base_name || record.family?.replaceAll('-', ' ') || '');
+    const baseTokens = meaningfulTokens(base);
+    const overlap = intersectionSize(rowTokens, recordTokens);
+    const union = new Set([...rowTokens, ...recordTokens]).size || 1;
+    const exactEan = Boolean(record.ean && row.ean && record.ean === row.ean);
+    const exactName = recordName === rowName;
+    let score = overlap * 12 + Math.round((overlap / union) * 40);
+
+    if (exactEan) score += 1000;
+    if (exactName) score += 300;
+    if (rowName.includes(recordName) || recordName.includes(rowName)) score += 55;
+    if (firstMeaningfulToken(row.name) === firstMeaningfulToken(record.name)) score += 28;
+    if (base && rowName.startsWith(base)) score += 42;
+    if (baseTokens.size && [...baseTokens].every((token) => rowTokens.has(token))) score += 32;
+
+    const presentation = comparePresentation(rowPresentation, recordPresentation);
+    score += presentation.score;
+
+    if (score < 34) continue;
+    scored.push({score, record, exactEan, exactName, presentationExact: presentation.exact});
+  }
+
+  scored.sort((a, b) => b.score - a.score || norm(a.record.name).localeCompare(norm(b.record.name), 'pt-BR'));
+  return scored;
+}
+
+function confidentCRMatch(ranked) {
+  const first = ranked[0];
+  if (!first) return null;
+  if (first.exactEan || first.exactName) return first.record;
+
+  const second = ranked[1];
+  const gap = second ? first.score - second.score : Infinity;
+  if (!second && first.score >= 55) return first.record;
+  if (first.score >= 105 && gap >= 5) return first.record;
+  if (first.score >= 78 && gap >= 10) return first.record;
+  if (first.presentationExact && first.score >= 70 && gap >= 7) return first.record;
+  return null;
+}
+
+function meaningfulTokens(value) {
+  return new Set(norm(value).split(' ').filter((token) => (
+    token && !RELATION_STOP_TOKENS.has(token) && !/^\d+$/.test(token)
+  )));
+}
+
+function firstMeaningfulToken(value) {
+  return [...meaningfulTokens(value)][0] || '';
+}
+
+function presentationTokens(value) {
+  const clean = String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/,/g, '.');
+  const tokens = new Set();
+  for (const match of clean.matchAll(/\b\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|ui|u\/g|%)\b/g)) {
+    tokens.add(match[0].replace(/\s+/g, ''));
+  }
+  for (const match of clean.matchAll(/\b(?:c|cx|com|contendo|x)\s*(\d{1,3})\b|\b(\d{1,3})\s*(?:comprimidos?|capsulas?|drageas?|saches?|ampolas?)\b/g)) {
+    tokens.add(`qtd:${match[1] || match[2]}`);
+  }
+  return tokens;
+}
+
+function comparePresentation(a, b) {
+  if (!a.size || !b.size) return {score: 0, exact: false};
+  const overlap = intersectionSize(a, b);
+  const dosesA = new Set([...a].filter((value) => !value.startsWith('qtd:')));
+  const dosesB = new Set([...b].filter((value) => !value.startsWith('qtd:')));
+  const packsA = new Set([...a].filter((value) => value.startsWith('qtd:')));
+  const packsB = new Set([...b].filter((value) => value.startsWith('qtd:')));
+  const doseConflict = dosesA.size && dosesB.size && !intersectionSize(dosesA, dosesB);
+  const packConflict = packsA.size && packsB.size && !intersectionSize(packsA, packsB);
+  if (doseConflict || packConflict) return {score: -120, exact: false};
+  if (a.size === b.size && overlap === a.size) return {score: 58, exact: true};
+  if (overlap) return {score: 22, exact: false};
+  return {score: -120, exact: false};
+}
+
+function intersectionSize(a, b) {
+  let size = 0;
+  for (const value of a) if (b.has(value)) size += 1;
+  return size;
 }
 
 async function safeFetch(input, init = {}, follow = true) {

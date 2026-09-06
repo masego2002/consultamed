@@ -12,6 +12,8 @@ const resultsEl = $('results');
 const detailsDialog = $('detailsDialog');
 const relationsDialog = $('relationsDialog');
 const relationsBody = $('relationsBody');
+const relationsTitle = $('relationsTitle');
+const changeRelationBtn = $('changeRelation');
 const searchBtn = $('searchBtn');
 const otherSearchBtn = $('otherSearchBtn');
 const cancelSearchBtn = $('cancelSearch');
@@ -35,6 +37,8 @@ let sessionBaseUrl = sessionStorage.getItem('consultamed.baseUrl') || '';
 let connectionCode = '';
 let manualRelations = readLocalObject(MANUAL_RELATIONS_KEY);
 let pendingRelations = readLocalObject(PENDING_RELATIONS_KEY);
+let relationEditorKey = '';
+let currentDetailsRecord = null;
 
 localStorage.removeItem('consultamed.baseUrl');
 localStorage.removeItem('consultamed.manualRelations');
@@ -152,7 +156,11 @@ function rememberRelationCandidates(records) {
     const key = String(record?.relationKey || '');
     if (!key) continue;
 
-    const candidates = Array.isArray(record?.relationCandidates) ? [...record.relationCandidates] : [];
+    const previous = pendingRelations[key];
+    const candidates = [
+      ...(Array.isArray(record?.relationCandidates) ? record.relationCandidates : []),
+      ...(Array.isArray(previous?.candidates) ? previous.candidates : [])
+    ];
     const automaticCandidate = relationCandidateFromRecord(record);
     if (automaticCandidate) candidates.unshift(automaticCandidate);
 
@@ -169,6 +177,7 @@ function rememberRelationCandidates(records) {
     pendingRelations[key] = {
       key,
       baseName: String(record?.stock?.name || record?.name || ''),
+      automaticUrl: automaticCandidate?.url || previous?.automaticUrl || '',
       candidates: unique
     };
     changed = true;
@@ -202,7 +211,8 @@ function applyManualRelations(records) {
     if (!key || !record?.stock) return record;
 
     const selected = manualRelations[key];
-    if (!selected || selected === '__none__' || typeof selected !== 'object') {
+    if (!selected) return record;
+    if (selected === '__none__' || typeof selected !== 'object') {
       return rawBaseRecord(record);
     }
 
@@ -217,22 +227,34 @@ function applyManualRelations(records) {
   });
 }
 
-function renderRelationsManager() {
+function renderRelationsManager(onlyKey = '') {
   const entries = Object.values(pendingRelations)
     .filter((entry) => entry && entry.key && Array.isArray(entry.candidates) && entry.candidates.length)
+    .filter((entry) => onlyKey ? entry.key === onlyKey : !entry.automaticUrl && !manualRelations[entry.key])
     .sort((a, b) => String(a.baseName || '').localeCompare(String(b.baseName || ''), 'pt-BR'));
 
+  if (!entries.length) {
+    relationsBody.innerHTML = '<div class="card muted">Nenhuma relação duvidosa.</div>';
+    $('saveRelations').classList.add('hidden');
+    return;
+  }
+
+  $('saveRelations').classList.remove('hidden');
   relationsBody.innerHTML = entries.map((entry) => {
     const saved = manualRelations[entry.key];
-    const selectedValue = saved === '__none__' ? '__none__' : (saved && typeof saved === 'object' ? saved.url || '' : '');
+    const selectedValue = saved === '__none__'
+      ? '__none__'
+      : (saved && typeof saved === 'object' ? saved.url || '' : (entry.automaticUrl ? '__auto__' : ''));
     const candidates = entry.candidates.filter((candidate) => candidate?.url && candidate?.name);
+    const automatic = candidates.find((candidate) => candidate.url === entry.automaticUrl);
     return `
       <div class="relation-item">
         <strong>${esc(entry.baseName)}</strong>
         <select data-relation-key="${esc(entry.key)}">
-          <option value="" ${selectedValue === '' ? 'selected' : ''}>—</option>
+          <option value="" ${selectedValue === '' ? 'selected' : ''}>Selecione</option>
+          ${entry.automaticUrl ? `<option value="__auto__" ${selectedValue === '__auto__' ? 'selected' : ''}>Automática${automatic ? ` — ${esc(automatic.name)}` : ''}</option>` : ''}
           <option value="__none__" ${selectedValue === '__none__' ? 'selected' : ''}>Sem relação</option>
-          ${candidates.map((candidate) => `<option value="${esc(candidate.url)}" ${selectedValue === candidate.url ? 'selected' : ''}>${esc(candidate.name)}</option>`).join('')}
+          ${candidates.map((candidate) => `<option value="${esc(candidate.url)}" ${selectedValue === candidate.url ? 'selected' : ''}>${esc(candidate.name)}${candidate.active ? ` — ${esc(candidate.active)}` : ''}</option>`).join('')}
         </select>
       </div>
     `;
@@ -244,7 +266,7 @@ function saveManualRelations() {
     const key = select.dataset.relationKey || '';
     if (!key) return;
     const value = select.value;
-    if (!value) {
+    if (!value || value === '__auto__') {
       delete manualRelations[key];
       return;
     }
@@ -260,7 +282,24 @@ function saveManualRelations() {
   writeLocalObject(MANUAL_RELATIONS_KEY, manualRelations);
   lastRecords = applyManualRelations(lastRawRecords);
   render(lastRecords);
+  const editedKey = relationEditorKey;
   relationsDialog.close();
+  relationEditorKey = '';
+  if (editedKey && detailsDialog.open) {
+    const updated = lastRecords.find((record) => record.relationKey === editedKey);
+    detailsDialog.close();
+    if (updated) showDetails(updated);
+  }
+}
+
+function openRelationEditor(record) {
+  const key = String(record?.relationKey || '');
+  if (!key) return;
+  rememberRelationCandidates([record]);
+  relationEditorKey = key;
+  relationsTitle.textContent = 'Alterar relação';
+  renderRelationsManager(key);
+  relationsDialog.showModal();
 }
 
 function render(records) {
@@ -346,7 +385,10 @@ function renderPresentations(items = [], family = '') {
 
 function showDetails(record) {
   const token = ++detailsRequestToken;
+  currentDetailsRecord = record;
   $('detailsTitle').textContent = record.name;
+  const relationEntry = pendingRelations[String(record?.relationKey || '')];
+  changeRelationBtn.classList.toggle('hidden', !record?.stock || !record?.relationKey || !relationEntry?.candidates?.length);
   const family = record.family || '';
   const bula = family ? `https://consultaremedios.com.br/${encodeURIComponent(family)}/bula` : record.url;
   const localItems = localPresentations(record);
@@ -531,11 +573,17 @@ searchBtn.addEventListener('click', doSearch);
 otherSearchBtn.addEventListener('click', doOtherSearch);
 cancelSearchBtn.addEventListener('click', cancelSearch);
 updateRelationsBtn.addEventListener('click', () => {
+  relationEditorKey = '';
+  relationsTitle.textContent = 'Relações duvidosas';
   renderRelationsManager();
   relationsDialog.showModal();
 });
+$('changeRelation').addEventListener('click', () => openRelationEditor(currentDetailsRecord));
 $('saveRelations').addEventListener('click', saveManualRelations);
-$('closeRelations').addEventListener('click', () => relationsDialog.close());
+$('closeRelations').addEventListener('click', () => {
+  relationEditorKey = '';
+  relationsDialog.close();
+});
 query.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter') return;
   event.preventDefault();
