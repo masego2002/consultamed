@@ -5,16 +5,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f7f8">
   <title>ConsultaMed</title>
+  <link rel="icon" href="/icon.svg?v=2.0" type="image/svg+xml">
+  <link rel="shortcut icon" href="/icon.svg?v=2.0" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">ConsultaMed <span>1.9</span></div>
-    <button id="configBtn" class="icon-btn" type="button" aria-label="Configurações" aria-pressed="true">⚙</button>
+    <div class="brand"><img class="brand-logo" src="/icon.svg?v=2.0" alt="">ConsultaMed <span>2.0</span></div>
+    <button id="configBtn" class="icon-btn" type="button" aria-label="Configurações" aria-pressed="false">⚙</button>
   </header>
 
   <main class="container">
-    <section id="configPanel" class="panel">
+    <section id="configPanel" class="panel initial-connection">
       <h1>Conexão</h1>
       <label for="baseUrl">URL</label>
       <input id="baseUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://xxxx.trycloudflare.com">
@@ -22,7 +24,7 @@
       <label for="baseCode">Código</label>
       <input id="baseCode" type="password" inputmode="numeric" autocomplete="off" placeholder="Código de acesso">
 
-      <label class="check-row">
+      <label class="check-row settings-only">
         <input id="onlyStock" type="checkbox">
         <span>Somente em estoque</span>
       </label>
